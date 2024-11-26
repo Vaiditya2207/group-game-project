@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Game Test Client</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        .container {
+            margin: 20px;
+        }
+
+        .log {
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin: 10px 0;
+        }
+
+        .buttons {
+            margin: 10px 0;
+        }
+
+        button {
+            margin: 0 5px;
+        }
+
+        canvas {
+            border: 1px solid #000;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>Game Test Client</h2>
+
+        <div class="buttons">
+            <input type="text" id="username" placeholder="Username">
+            <select id="role">
+                <option value="civilian">Civilian</option>
+                <option value="attacker">Attacker</option>
+            </select>
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+        </div>
+
+        <canvas id="gameCanvas" width="1000" height="1000" style="width: 500px; height: 500px;"></canvas>
+
+        <h3>Event Log:</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let socket;
+        let playerRole;
+        let gameState = { players: [] };
+        const log = document.getElementById('log');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scale = 0.5; 
+
+        function addToLog(message, type = 'info') {
+            const div = document.createElement('div');
+            div.style.color = type === 'error' ? 'red' : 'black';
+            div.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function drawGame() {
+            ctx.clearRect(0, 0, 1000, 1000);
+
+            gameState.players.forEach(player => {
+                if (player.role === 'civilian' && player.isAlive) {
+                    if (playerRole === 'attacker' ||
+                        (playerRole === 'civilian' && player.id === socket.id)) {
+                        ctx.fillStyle = player.id === socket.id ? 'blue' : 'green';
+                        ctx.beginPath();
+                        ctx.arc(player.position.x, player.position.y, 10, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            });
+        }
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * (1000 / rect.width);
+            const y = (e.clientY - rect.top) * (1000 / rect.height);
+
+            if (playerRole === 'civilian') {
+                socket.emit('move', { x, y });
+                addToLog(`Moving to position: {x: ${Math.round(x)}, y: ${Math.round(y)}}`);
+            } else if (playerRole === 'attacker') {
+                socket.emit('attack', { x, y });
+                addToLog(`Attacking position: {x: ${Math.round(x)}, y: ${Math.round(y)}}`);
+            }
+        });
+
+        function connect() {
+            const username = document.getElementById('username').value;
+            const role = document.getElementById('role').value;
+
+            if (!username) {
+                addToLog('Username is required!', 'error');
+                return;
+            }
+
+            playerRole = role;
+            socket = io('http://10.7.4.35:3000');
+
+            socket.on('connect', () => {
+                addToLog('Connected to server');
+                socket.emit('join', { username, role });
+            });
+
+            socket.on('joined', (data) => {
+                addToLog(`Joined game: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('gameState', (state) => {
+                gameState = state;
+                drawGame();
+                addToLog(`Game state update: ${JSON.stringify(state)}`);
+            });
+
+            socket.on('positionUpdate', (data) => {
+                addToLog(`Position update: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('playerAttacked', (data) => {
+                addToLog(`Player attacked: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('playerEliminated', (data) => {
+                addToLog(`Player eliminated: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('gameOver', (data) => {
+                addToLog(`Game over: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('error', (error) => {
+                addToLog(`Error: ${error.message}`, 'error');
+            });
+
+            socket.on('disconnect', () => {
+                addToLog('Disconnected from server');
+            });
+        }
+
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+        }
+    </script>
+</body>
+
+</html>
